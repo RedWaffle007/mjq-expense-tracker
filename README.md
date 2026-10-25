@@ -1,7 +1,8 @@
 # MJQ Builders & Developers — Expense Tracker
 
 The full specification is in [plan.md](plan.md). Everything runs on free tiers
-(Firebase Spark, Cloudflare Workers Free, Cloudinary Free, Gemini free tier).
+(Firebase Spark, Cloudflare Workers Free, Cloudinary Free). Voice entry is
+parked; see plan.md Section 13 to restore it.
 
 | Folder | What |
 |---|---|

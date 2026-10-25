@@ -38,7 +38,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         builder: (context) => AlertDialog(
           title: const Text('Set up reliable alerts'),
           content: const Text(
-            'Allow notifications when Android asks. On Xiaomi, Oppo, Vivo, or Realme, also allow autostart and unrestricted battery use. For offline voice, download the English (India) and Hindi speech packs in Android settings.',
+            'Allow notifications when Android asks. On Xiaomi, Oppo, Vivo, or Realme, also allow autostart and unrestricted battery use.',
           ),
           actions: [
             FilledButton(

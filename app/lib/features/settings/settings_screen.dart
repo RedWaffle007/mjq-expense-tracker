@@ -43,13 +43,6 @@ class SettingsScreen extends ConsumerWidget {
               mode: LaunchMode.externalApplication,
             ),
           ),
-          const ListTile(
-            leading: Icon(Icons.record_voice_over_outlined),
-            title: Text('Offline speech packs'),
-            subtitle: Text(
-              'In Android settings, download English (India) and Hindi speech recognition packs for offline voice entry.',
-            ),
-          ),
         ],
       ),
     );

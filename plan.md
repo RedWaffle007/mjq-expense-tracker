@@ -59,7 +59,7 @@ Each expense entry has:
 | Note | No | Free text |
 | Bill photos | No | One or more photos |
 
-**Voice entry**
+**Voice entry** (parked 2026-10-25, see Section 13)
 - Manager taps a mic button and speaks naturally, e.g. "50 bags cement, 380 each, from Sai Traders."
 - The recording is sent to Gemini (via Firebase AI Logic, Gemini Developer API free tier), which returns structured JSON for the fields above.
 - The app shows a pre-filled form. The manager reviews, edits if needed, attaches a bill photo, and taps Save.
@@ -470,7 +470,7 @@ Pick a current Flash model whose **free tier includes audio input** (check the G
 
 **Done when:** every add/edit/delete on one phone produces a correct, detailed notification on the other two within seconds, and a change that synced while the app was closed still produces its notification (via the sweep) within a few minutes.
 
-### Milestone 5 — Voice Entry
+### Milestone 5 — Voice Entry (parked 2026-10-25, see Section 13)
 - Audio recording UI
 - Gemini parsing with JSON schema (Firebase AI Logic, Gemini Developer API free tier)
 - Pre-filled confirm/edit form
@@ -525,6 +525,7 @@ The data model should not block any of these later.
 5. **iOS:** Android only for v1.
 
 ### Decided (2026-10-25)
+- **Voice entry is parked** (Section 3.2 "Voice entry", Section 8, Milestone 5). The app no longer ships the mic button, voice screens, `firebase_ai`, `record`, `speech_to_text`, or the microphone permission. The complete implementation is kept in commit `daac6e7`; restore it with `git checkout daac6e7 -- app/lib/features/voice app/test/voice_parser_test.dart`, then re-add the three packages, `RECORD_AUDIO`, the site-screen mic button, and the form's `voiceFields` prefill. Rules still accept `source: "voice"`.
 - **Quantity** is optional free text (Section 3.2). Rules accept text (1–60 characters), null, or the positive numbers saved earlier.
 - **Grand total** on the Overview is collapsed by default and shown on tap.
 - **Cloudinary signatures** use SHA-1, Cloudinary's default (the earlier SHA-256 switch was based on what turned out to be a wrong API secret).

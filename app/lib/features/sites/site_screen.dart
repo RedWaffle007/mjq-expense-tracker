@@ -8,7 +8,6 @@ import '../../core/routing/routes.dart';
 import '../../data/entries/expense_entry.dart';
 import '../../data/providers.dart';
 import '../../data/users/app_user.dart';
-import '../voice/voice_entry_screen.dart';
 
 final _siteEntriesProvider = StreamProvider.autoDispose
     .family<List<ExpenseEntry>, String>(
@@ -43,28 +42,10 @@ class _SiteScreenState extends ConsumerState<SiteScreen> {
     final users = ref.watch(_filterUsersProvider).value ?? const <AppUser>[];
     return Scaffold(
       appBar: AppBar(title: Text(widget.siteName)),
-      floatingActionButton: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton(
-            heroTag: 'voice',
-            tooltip: 'Voice expense',
-            child: const Icon(Icons.mic),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => VoiceEntryScreen(siteId: siteId),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          FloatingActionButton.extended(
-            heroTag: 'manual',
-            onPressed: () => context.push(Routes.addEntryPath(siteId)),
-            icon: const Icon(Icons.add),
-            label: const Text('Manual'),
-          ),
-        ],
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push(Routes.addEntryPath(siteId)),
+        icon: const Icon(Icons.add),
+        label: const Text('Add expense'),
       ),
       body: Column(
         children: [

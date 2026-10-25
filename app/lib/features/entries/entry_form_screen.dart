@@ -11,18 +11,11 @@ import '../../data/entries/expense_entry.dart';
 import '../../data/entries/quantity.dart';
 import '../../data/providers.dart';
 import '../auth/application/session.dart';
-import '../voice/voice_parser.dart';
 
 class EntryFormScreen extends ConsumerStatefulWidget {
-  const EntryFormScreen({
-    super.key,
-    this.initialSiteId,
-    this.entry,
-    this.voiceFields,
-  });
+  const EntryFormScreen({super.key, this.initialSiteId, this.entry});
   final String? initialSiteId;
   final ExpenseEntry? entry;
-  final VoiceFields? voiceFields;
 
   @override
   ConsumerState<EntryFormScreen> createState() => _EntryFormScreenState();
@@ -47,29 +40,16 @@ class _EntryFormScreenState extends ConsumerState<EntryFormScreen> {
     super.initState();
     final entry = widget.entry;
     _siteId = entry?.siteId ?? widget.initialSiteId;
-    _category =
-        entry?.category ??
-        widget.voiceFields?.category ??
-        ExpenseCategory.other;
-    _unit = entry?.unit ?? widget.voiceFields?.unit;
+    _category = entry?.category ?? ExpenseCategory.other;
+    _unit = entry?.unit;
     _date = entry?.expenseDate ?? DateTime.now();
-    _item = TextEditingController(
-      text: entry?.item ?? widget.voiceFields?.item,
-    );
-    final voiceQuantity = widget.voiceFields?.quantity;
-    final quantity =
-        entry?.quantity ??
-        (voiceQuantity == null ? null : formatQuantityNumber(voiceQuantity));
-    _quantity = TextEditingController(text: quantity ?? '');
-    final count = leadingQuantity(quantity) ?? 1;
-    final price = entry?.rate != null
-        ? entry!.rate! / 100
-        : entry != null
-        ? entry.amount / 100 / count
-        : widget.voiceFields?.rateRupees ??
-              (widget.voiceFields?.amountRupees != null
-                  ? widget.voiceFields!.amountRupees! / count
-                  : null);
+    _item = TextEditingController(text: entry?.item);
+    _quantity = TextEditingController(text: entry?.quantity ?? '');
+    final price = entry == null
+        ? null
+        : entry.rate != null
+        ? entry.rate! / 100
+        : entry.amount / 100 / (leadingQuantity(entry.quantity) ?? 1);
     _rate = TextEditingController(
       text: price == null
           ? ''
@@ -106,10 +86,9 @@ class _EntryFormScreenState extends ConsumerState<EntryFormScreen> {
       quantity: _quantity.text,
       unit: _unit,
       rate: rate,
-      vendor: widget.entry?.vendor ?? widget.voiceFields?.vendor,
-      note: widget.entry?.note ?? widget.voiceFields?.note,
+      vendor: widget.entry?.vendor,
+      note: widget.entry?.note,
       expenseDate: _date,
-      source: widget.voiceFields == null ? 'manual' : 'voice',
     );
   }
 
@@ -212,13 +191,6 @@ class _EntryFormScreenState extends ConsumerState<EntryFormScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (widget.voiceFields?.onDevice == true)
-              const Card(
-                child: ListTile(
-                  leading: Icon(Icons.phone_android),
-                  title: Text('Parsed on device — please check'),
-                ),
-              ),
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
               title: const Text('Take photo'),

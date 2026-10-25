@@ -24,19 +24,21 @@ Scope is deliberately narrow: **expense tracking only.** Budgets, vendor dues, l
 
 | Role | Count at launch | Permissions |
 |---|---|---|
-| CEO | 1 | Everything managers can do, plus: invite/deactivate users, add/edit/archive sites, download Excel exports |
+| CEO | 1 | Everything managers can do, plus: invite users, add/edit/archive sites, download Excel exports |
 | Manager | 2 (more later) | Add, edit, and soft-delete expenses on any site; view all sites, entries, history, and activity |
 
 - Currently 3 construction sites, shared by 2 managers. Every user can see every site.
 - The CEO can add more managers and sites at any time.
 - Users sign in with their Google account. Only email addresses invited by the CEO can access the app.
+- The CEO records both the user's Google email and mobile number. The app creates the email-bound invite, then opens a pre-filled SMS containing an opaque invitation link; the CEO taps Send. The link never authenticates the recipient by itself.
 
 ## 3. Features
 
 ### 3.1 Accounts and Sites
-- CEO invites a user by entering name, Google account email, and role.
+- CEO invites a user by entering name, Google account email, mobile number, and role.
+- The invitation is delivered through the CEO's normal SMS app, avoiding a paid SMS gateway. If the app is installed, the verified link opens it; otherwise it opens an APK installation page. After installation, the user signs in with the invited Google account.
 - Invited user signs in with Google and is automatically assigned their role.
-- CEO can deactivate a user; they are signed out immediately and lose all access.
+- Managers are permanent once added; the app does not expose a remove/deactivate control. The server-side emergency deactivation safeguard remains available only for maintenance or a compromised account.
 - CEO can add a site (name, location/address, optional notes) and archive a completed site.
 - Each site has its own tab/screen with its own running totals.
 
@@ -49,7 +51,7 @@ Each expense entry has:
 | Item | Yes | e.g. "Cement (OPC 53)" |
 | Category | Yes | Material, Labour, Equipment, Transport, Other |
 | Amount (₹) | Yes | Total amount paid |
-| Quantity | No | Number |
+| Quantity | No | Free text, e.g. "50 bags", "2.5 ton", "1 load". If it starts with a number, amount = that number × price per item; otherwise the price per item is the amount |
 | Unit | No | bags, kg, ton, cft, sqft, nos, trips, days, litre, other |
 | Rate | No | Per-unit price. If quantity and rate are both entered, amount auto-fills as qty × rate but stays editable |
 | Vendor | No | Free text |
@@ -113,7 +115,7 @@ Each expense entry has:
 
 ### 3.6 Viewing the Numbers
 - **Site screen:** total spent, breakdown by category, and a searchable, filterable list of entries (filter by category, date range, and who entered it).
-- **Overview screen:** all active sites side by side with their totals, plus a grand total.
+- **Overview screen:** all active sites side by side with their totals, plus a grand total that stays collapsed until tapped.
 - All amounts shown in Indian number format (₹1,00,000).
 - Totals are computed **in the app** (there are no server-side aggregates). See "Site totals" under Section 5.
 
@@ -205,6 +207,8 @@ createdAt: timestamp
 ```
 name: string
 email: string
+phone: string            // E.164; addresses the pre-filled SMS invitation
+inviteToken: string      // opaque, revocable link token; never grants app access
 role: "ceo" | "manager"
 invitedBy: uid
 createdAt: timestamp
@@ -230,7 +234,7 @@ siteId: string
 item: string
 category: "material" | "labour" | "equipment" | "transport" | "other"
 amount: int (paise)
-quantity: number | null
+quantity: string | null    // free text, 1–60 chars; entries saved before 2026-10-25 may hold a positive number
 unit: string | null
 rate: int (paise) | null
 vendor: string | null
@@ -292,6 +296,8 @@ lastExportAt: timestamp | null   // set by the CEO's device after each export; d
 ### Site totals (computed in the app)
 - **Online:** Firestore aggregation queries (`sum('amount')` and `count()` on non-deleted entries, per site and per category). These are billed by index entries read, far cheaper than reading every entry.
 - **Offline:** show the last known totals (saved locally after every online fetch), adjusted by this phone's unsynced changes, with an "as of <time>" label.
+- **Unsynced changes:** every entry write records its site/category amount change locally until Firestore acknowledges or rejects it, and totals add these on top of the server or last-known figure, so a new, edited, or deleted expense shows in the totals immediately, online or offline.
+- **Refresh:** totals are fetched again whenever a new activity doc appears (any user's change) or a local change settles, using a one-document listener on the newest activity.
 - Do **not** keep a live listener on every entry for totals. A listener that reconnects after more than 30 minutes is billed as a brand-new query, which would exceed the 50K reads/day limit as entries grow. Entry lists are paginated (e.g. 50 at a time).
 
 ## 6. Cloudflare Worker (server)
@@ -308,7 +314,7 @@ Service-account OAuth access tokens are cached in memory between requests (they 
 | Endpoint | Who | Purpose |
 |---|---|---|
 | `POST /signup/complete` | Any Google-signed-in user | Read the verified `email` from the ID token (`email_verified` must be true; never trust an email in the request body). Look up `invites/{email}`; reject with 403 if missing or already claimed by another uid. Create `users/{uid}`, set custom claims `{ role, active: true }` via Identity Toolkit `accounts:update`, and mark the invite claimed. The app then force-refreshes its ID token. |
-| `POST /invites/create` | CEO | Create `invites/{email}` (name, email, role). |
+| `POST /invites/create` | CEO | Create `invites/{email}` (name, email, phone, role, opaque invite token) and return its HTTPS invitation link. |
 | `POST /users/set-active` | CEO | Activate or deactivate a user. Update `users/{uid}.active` and the claims. On deactivation, also set `disableUser: true` and `validSince: now` (revokes sessions). The CEO cannot deactivate themselves. |
 | `POST /notify` | Active user | Body `{ activityId }`. Load the activity doc and check that `actorId` is the caller and `notifiedAt` is null. Send a high-priority FCM message to every active user except the actor, remove tokens FCM reports as invalid, and set `notifiedAt`. |
 | `POST /photos/sign-upload` | Active user | Body `{ siteId, entryId }`. Return a Cloudinary upload signature for `type: authenticated`, a public ID scoped to `bills/{siteId}/{entryId}/{random}`, image formats only, and a timestamp. |
@@ -390,7 +396,7 @@ Pick a current Flash model whose **free tier includes audio input** (check the G
 5. **Add/Edit entry** — form, photo attach, voice fill
 6. **Entry detail** — all fields, photos, edit history, edit/delete buttons
 7. **Activity feed** — all actions across sites
-8. **CEO: Manage users** — invite by email, list, deactivate
+8. **CEO: Manage users** — invite by email and phone, list users (no remove/deactivate control)
 9. **CEO: Manage sites** — add, edit, archive
 10. **CEO: Export** — download Excel (hidden for managers)
 11. **Settings** — profile, app lock, notification help, sign out
@@ -482,6 +488,7 @@ Pick a current Flash model whose **free tier includes audio input** (check the G
 - Excel library spike (Decision 8) before building the export
 - Backup reminder banner for the CEO when the last export is more than 7 days old
 - Release builds (Android first)
+- **Release checklist:** turn on Worker App Check enforcement (remove `APP_CHECK_ENFORCE = "false"` from `wrangler.toml` and deploy) once release clients send valid tokens; remove test accounts (delete their `invites`/`users` docs and Firebase Auth accounts via a script), bootstrap the real CEO's email, and have the CEO invite the real managers. Test data (sites/entries) is removed too, or the project starts clean.
 
 **Done when:** the CEO can generate a correct workbook (sheet per site + All Sites summary) matching the app's totals exactly, with working photo links; managers cannot see or trigger export.
 
@@ -507,11 +514,21 @@ The data model should not block any of these later.
 9. **Backups:** accept the weekly Excel export as the only backup (it excludes history, activity, and deleted entries), plus a reminder banner for the CEO when the last export is more than 7 days old.
 - **Worker language:** TypeScript (time-app's JavaScript Worker is ported, not copied).
 
-### Still open (confirm before or during build)
-2. **Moving an entry to a different site:** allow for everyone, CEO only, or never?
-3. **Photo-only updates:** send a gentler push notification, or log in the activity feed only?
-4. **Deleted entries in Excel:** exclude entirely (default) or list them in a separate section?
-5. **iOS:** needed at launch or Android only first?
+### Decided (2026-09-26)
+2. **Moving an entry to a different site:** allowed for both managers and the CEO. The site change must be included in the immutable history record, just like every other user-visible change.
+- **Distribution:** Android only and no Google Play Store listing. Releases will be installed directly from a trusted APK host. SMS invitation links open the installed app or an APK installation page; Google sign-in with the invited email remains mandatory.
+- **APK host:** use this project's existing GitHub Releases. Possessing the APK or repository access never grants application access; only an unclaimed CEO-created invite for the verified Google email can create a user.
+
+### Decided during implementation (2026-09-27)
+3. **Photo-only updates:** log in the activity feed only; do not send a push.
+4. **Deleted entries in Excel:** exclude them entirely, matching the weekly-backup definition.
+5. **iOS:** Android only for v1.
+
+### Decided (2026-10-25)
+- **Quantity** is optional free text (Section 3.2). Rules accept text (1–60 characters), null, or the positive numbers saved earlier.
+- **Grand total** on the Overview is collapsed by default and shown on tap.
+- **Cloudinary signatures** use SHA-1, Cloudinary's default (the earlier SHA-256 switch was based on what turned out to be a wrong API secret).
+- **Worker App Check** runs in monitor mode (`APP_CHECK_ENFORCE = "false"` in `wrangler.toml`) until Play Integrity and the debug token are registered: unattested requests are logged, not rejected. Removing that line is part of the release checklist.
 
 ## 14. Existing Code Reuse (Optional Step)
 

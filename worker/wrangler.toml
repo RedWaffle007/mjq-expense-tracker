@@ -1,0 +1,28 @@
+name = "mjq-worker"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+# Non-secret config. The project ID is a public identifier.
+[vars]
+PROJECT_ID = "mjq-builders-developers"
+PROJECT_NUMBER = "71897827045"
+ANDROID_APP_ID = "1:71897827045:android:4954c3e80d125d65aeb60c"
+PUBLIC_BASE_URL = "https://mjq-worker.timeapp.workers.dev"
+# Release assets contain binaries only. Downloading the APK never grants app access;
+# the Worker's email-bound invitation check remains the authorization gate.
+APK_DOWNLOAD_URL = "https://github.com/RedWaffle007/mjq-expense-tracker/releases/latest/download/mjq-expense-tracker.apk"
+# Public Cloudinary product-environment identifiers. The API secret is stored
+# separately with `wrangler secret put` and must never be committed here.
+CLOUDINARY_CLOUD_NAME = "nxawpeid"
+CLOUDINARY_API_KEY = "459814768542914"
+# App Check monitor mode until Play Integrity and the debug token are
+# registered: unattested requests are logged, not rejected. Remove this line
+# (or set "true") before release; the Worker then rejects them.
+APP_CHECK_ENFORCE = "false"
+
+# The service-account JSON is NOT here. It is an encrypted secret:
+#   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT < /path/to/key.json
+# For `wrangler dev` against the emulators, copy .dev.vars.example to .dev.vars.

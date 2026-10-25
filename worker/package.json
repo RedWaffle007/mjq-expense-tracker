@@ -1,0 +1,22 @@
+{
+  "name": "mjq-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker for MJQ Builders & Developers (plan.md Section 6).",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --exclude \"test/emulator/**\"",
+    "test:emulator": "firebase emulators:exec --only auth,firestore --config ../firebase/firebase.json --project demo-mjq \"vitest run test/emulator\""
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260925.1",
+    "firebase-admin": "^14.5.0",
+    "firebase-tools": "^15.31.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2",
+    "wrangler": "^4.140.0"
+  }
+}

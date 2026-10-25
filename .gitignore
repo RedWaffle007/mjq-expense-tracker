@@ -4,6 +4,9 @@
 .env
 .env.*
 worker/.dev.vars
+*.jks
+*.keystore
+key.properties
 
 # Worker / Node
 node_modules/
@@ -19,3 +22,15 @@ build/
 
 # OS
 .DS_Store
+
+# Firebase service-account keys
+*firebase-adminsdk*.json
+
+# Emulator logs
+*-debug.log
+
+# Kotlin compiler daemon state
+.kotlin/
+
+# Local session notes (test-account and device details; the repo is public)
+handoff.md

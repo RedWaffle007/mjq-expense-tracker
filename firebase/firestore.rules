@@ -1,0 +1,369 @@
+rules_version = '2';
+
+// Security rules for MJQ Builders & Developers expense tracker.
+// See plan.md Section 7. Milestone 1 covers users and invites; every other
+// path is denied until its milestone adds rules for it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- identity helpers ---------------------------------------------------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    // Active means BOTH the custom claim (set by the Worker at signup) and the
+    // users doc agree. The doc check is what makes deactivation immediate: a
+    // deactivated user's old ID token still carries `active: true` for up to
+    // an hour, but their users doc says false the moment the CEO flips it.
+    function isActive() {
+      return signedIn()
+        && request.auth.token.active == true
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.active == true;
+    }
+
+    function isCeo() {
+      return isActive()
+        && request.auth.token.role == 'ceo'
+        && get(userPath(request.auth.uid)).data.role == 'ceo';
+    }
+
+    // --- users/{uid} ---------------------------------------------------------
+    // Created and managed by the Worker only. A user may always read their OWN
+    // doc (so a deactivated user's app can see `active: false` and sign out),
+    // and may update only their own fcmTokens.
+    match /users/{uid} {
+      allow read: if isActive()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow update: if isActive()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['fcmTokens'])
+        && request.resource.data.fcmTokens is list
+        && request.resource.data.fcmTokens.size() <= 10;
+
+      allow create, delete: if false;
+    }
+
+    // --- invites/{emailLowercase} ---------------------------------------------
+    // Written by the Worker only. The CEO can read them (Manage users screen).
+    match /invites/{email} {
+      allow read: if isCeo();
+      allow write: if false;
+    }
+
+    // Opaque SMS-link lookup records are Worker-only. Even the CEO manages
+    // them through /invites/create rather than reading or writing them here.
+    match /inviteLinks/{token} {
+      allow read, write: if false;
+    }
+
+    // --- sites/{siteId} -----------------------------------------------------
+    function validSite(data) {
+      return data.keys().hasOnly([
+          'name', 'location', 'notes', 'status', 'createdBy', 'createdAt'
+        ])
+        && data.keys().hasAll([
+          'name', 'location', 'notes', 'status', 'createdBy', 'createdAt'
+        ])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.location is string && data.location.size() <= 300
+        && data.notes is string && data.notes.size() <= 1000
+        && data.status in ['active', 'archived']
+        && data.createdBy is string
+        && data.createdAt is timestamp;
+    }
+
+    match /sites/{siteId} {
+      allow read: if isActive();
+      allow create: if isCeo()
+        && validSite(request.resource.data)
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update: if isCeo()
+        && validSite(request.resource.data)
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    // --- entries + immutable history/activity ------------------------------
+    function trackedFields() {
+      return [
+        'siteId', 'item', 'category', 'amount', 'quantity', 'unit', 'rate',
+        'vendor', 'note', 'expenseDate', 'photos'
+      ];
+    }
+
+    // Quantity is optional free text ("50 bags"); entries saved before that
+    // change hold a positive number, which must stay valid on later edits.
+    function validQuantity(quantity) {
+      return quantity == null
+        || (quantity is string && quantity.size() > 0 && quantity.size() <= 60)
+        || (quantity is number && quantity > 0);
+    }
+
+    function validEntry(data) {
+      return data.keys().hasOnly([
+          'siteId', 'item', 'category', 'amount', 'quantity', 'unit', 'rate',
+          'vendor', 'note', 'expenseDate', 'photos', 'pendingPhotoCount',
+          'source', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt',
+          'isDeleted', 'deletedBy', 'deletedAt', 'lastChangeId',
+          'baseChangeId', 'conflict'
+        ])
+        && data.siteId is string && data.siteId.size() > 0
+        && data.item is string && data.item.size() > 0 && data.item.size() <= 200
+        && data.category in ['material', 'labour', 'equipment', 'transport', 'other']
+        && data.amount is int && data.amount > 0
+        && validQuantity(data.quantity)
+        && (data.unit == null || (data.unit is string && data.unit.size() <= 40))
+        && (data.rate == null || (data.rate is int && data.rate > 0))
+        && (data.vendor == null || (data.vendor is string && data.vendor.size() <= 200))
+        && (data.note == null || (data.note is string && data.note.size() <= 2000))
+        && data.expenseDate is timestamp
+        && data.photos is list
+        && data.photos.size() <= 10
+        && data.pendingPhotoCount is int && data.pendingPhotoCount >= 0
+        && data.source in ['manual', 'voice']
+        && data.createdBy is string && data.createdAt is timestamp
+        && data.updatedBy is string && data.updatedAt is timestamp
+        && data.isDeleted is bool
+        && (data.deletedBy == null || data.deletedBy is string)
+        && (data.deletedAt == null || data.deletedAt is timestamp)
+        && data.lastChangeId is string && data.lastChangeId.size() > 0
+        && (data.baseChangeId == null || data.baseChangeId is string)
+        && (data.conflict == null || (
+          data.conflict is map
+          && data.conflict.keys().hasOnly(['by', 'at'])
+          && data.conflict.by is string
+          && data.conflict.at is timestamp
+        ));
+    }
+
+    function activeSite(siteId) {
+      return get(/databases/$(database)/documents/sites/$(siteId)).data.status == 'active';
+    }
+
+    function historyAfter(entryId, changeId) {
+      return getAfter(/databases/$(database)/documents/entries/$(entryId)/history/$(changeId)).data;
+    }
+
+    function activityAfter(changeId) {
+      return getAfter(/databases/$(database)/documents/activity/$(changeId)).data;
+    }
+
+    function normalField(changes, field) {
+      return !(field in changes) || (
+        changes[field].before == resource.data[field]
+        && changes[field].after == request.resource.data[field]
+      );
+    }
+
+    function conflictField(changes, field) {
+      return !(field in changes) || (
+        changes[field].after == request.resource.data[field]
+      );
+    }
+
+    function allCreateChanges(changes) {
+      return changes == {
+        'siteId': {'before': null, 'after': request.resource.data.siteId},
+        'item': {'before': null, 'after': request.resource.data.item},
+        'category': {'before': null, 'after': request.resource.data.category},
+        'amount': {'before': null, 'after': request.resource.data.amount},
+        'quantity': {'before': null, 'after': request.resource.data.quantity},
+        'unit': {'before': null, 'after': request.resource.data.unit},
+        'rate': {'before': null, 'after': request.resource.data.rate},
+        'vendor': {'before': null, 'after': request.resource.data.vendor},
+        'note': {'before': null, 'after': request.resource.data.note},
+        'expenseDate': {'before': null, 'after': request.resource.data.expenseDate},
+        'photos': {'before': null, 'after': request.resource.data.photos}
+      };
+    }
+
+    function allNormalChanges(changes) {
+      let affected = request.resource.data.diff(resource.data).affectedKeys()
+        .intersection(trackedFields().toSet());
+      let changeKeys = changes.keys().toSet();
+      return changeKeys.hasAll(affected) && affected.hasAll(changeKeys)
+        && normalField(changes, 'siteId') && normalField(changes, 'item')
+        && normalField(changes, 'category') && normalField(changes, 'amount')
+        && normalField(changes, 'quantity') && normalField(changes, 'unit')
+        && normalField(changes, 'rate') && normalField(changes, 'vendor')
+        && normalField(changes, 'note') && normalField(changes, 'expenseDate')
+        && normalField(changes, 'photos');
+    }
+
+    function allConflictChanges(changes) {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      return changes.keys().hasOnly(trackedFields())
+        && (!affected.hasAny(['siteId']) || 'siteId' in changes)
+        && (!affected.hasAny(['item']) || 'item' in changes)
+        && (!affected.hasAny(['category']) || 'category' in changes)
+        && (!affected.hasAny(['amount']) || 'amount' in changes)
+        && (!affected.hasAny(['quantity']) || 'quantity' in changes)
+        && (!affected.hasAny(['unit']) || 'unit' in changes)
+        && (!affected.hasAny(['rate']) || 'rate' in changes)
+        && (!affected.hasAny(['vendor']) || 'vendor' in changes)
+        && (!affected.hasAny(['note']) || 'note' in changes)
+        && (!affected.hasAny(['expenseDate']) || 'expenseDate' in changes)
+        && (!affected.hasAny(['photos']) || 'photos' in changes)
+        && conflictField(changes, 'siteId') && conflictField(changes, 'item')
+        && conflictField(changes, 'category') && conflictField(changes, 'amount')
+        && conflictField(changes, 'quantity') && conflictField(changes, 'unit')
+        && conflictField(changes, 'rate') && conflictField(changes, 'vendor')
+        && conflictField(changes, 'note') && conflictField(changes, 'expenseDate')
+        && conflictField(changes, 'photos');
+    }
+
+    function validHistoryCommon(history, action) {
+      return history.keys().hasOnly([
+          'action', 'by', 'at', 'changes', 'conflict', 'overwroteChangeId'
+        ])
+        && history.action == action
+        && history.by == request.auth.uid
+        && history.at == request.time
+        && history.changes is map;
+    }
+
+    function validActivity(entryId, changeId, action, photoOnly) {
+      let activity = activityAfter(changeId);
+      return activity.keys().hasOnly([
+          'type', 'photoOnly', 'entryId', 'siteId', 'actorId', 'summary',
+          'createdAt', 'notifiedAt'
+        ])
+        && activity.type == action && activity.photoOnly == photoOnly
+        && activity.entryId == entryId
+        && activity.siteId == request.resource.data.siteId
+        && activity.actorId == request.auth.uid
+        && activity.summary is string && activity.summary.size() > 0
+        && activity.summary.size() <= 500
+        && activity.createdAt == request.time && activity.notifiedAt == null;
+    }
+
+    function validCreateBatch(entryId) {
+      let changeId = request.resource.data.lastChangeId;
+      let history = historyAfter(entryId, changeId);
+      return validHistoryCommon(history, 'create')
+        && history.conflict == false && history.overwroteChangeId == null
+        && allCreateChanges(history.changes)
+        && validActivity(entryId, changeId, 'create', false);
+    }
+
+    function validPhotoCounts() {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let photosChanged = affected.hasAny(['photos']);
+      let pendingChanged = affected.hasAny(['pendingPhotoCount']);
+      let addingPhoto = photosChanged
+        && request.resource.data.photos.size() == resource.data.photos.size() + 1
+        && request.resource.data.photos[resource.data.photos.size()] is map
+        && request.resource.data.photos[resource.data.photos.size()].keys()
+             .hasOnly(['publicId', 'uploadedAt'])
+        && request.resource.data.photos[resource.data.photos.size()].publicId is string
+        && request.resource.data.photos[resource.data.photos.size()].publicId
+             .matches('^bills/[A-Za-z0-9_-]{1,150}/[A-Za-z0-9_-]{1,150}/[a-f0-9-]{36}$')
+        && request.resource.data.photos[resource.data.photos.size()].uploadedAt is timestamp
+        && request.resource.data.pendingPhotoCount
+             == (resource.data.pendingPhotoCount > 0 ? resource.data.pendingPhotoCount - 1 : 0);
+      let reserving = !photosChanged && pendingChanged
+        && request.resource.data.pendingPhotoCount > resource.data.pendingPhotoCount
+        && request.resource.data.pendingPhotoCount <= resource.data.pendingPhotoCount + 5;
+      return (!photosChanged && !pendingChanged) || addingPhoto || reserving;
+    }
+
+    function validUpdateBatch(entryId) {
+      let changeId = request.resource.data.lastChangeId;
+      let history = historyAfter(entryId, changeId);
+      let deleting = resource.data.isDeleted == false && request.resource.data.isDeleted == true;
+      let action = deleting ? 'delete' : 'update';
+      let normal = request.resource.data.baseChangeId == resource.data.lastChangeId;
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      let photoOnly = !deleting
+        && history.changes.keys().hasOnly(['photos'])
+        && affected.hasAny(['photos', 'pendingPhotoCount']);
+      return validHistoryCommon(history, action)
+        && validActivity(entryId, changeId, action, photoOnly)
+        && validPhotoCounts()
+        && ((normal
+            && history.conflict == false && history.overwroteChangeId == null
+            && request.resource.data.conflict == null
+            && allNormalChanges(history.changes))
+          || (!normal
+            && history.conflict == true
+            && history.overwroteChangeId == resource.data.lastChangeId
+            && request.resource.data.conflict == {'by': request.auth.uid, 'at': request.time}
+            && allConflictChanges(history.changes)));
+    }
+
+    match /entries/{entryId} {
+      allow read: if isActive();
+      allow create: if isActive()
+        && validEntry(request.resource.data)
+        && activeSite(request.resource.data.siteId)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.isDeleted == false
+        && request.resource.data.deletedBy == null
+        && request.resource.data.deletedAt == null
+        && request.resource.data.baseChangeId == null
+        && request.resource.data.conflict == null
+        && request.resource.data.pendingPhotoCount <= 5
+        && validCreateBatch(entryId);
+      allow update: if isActive()
+        && request.resource.data.keys() == resource.data.keys()
+        && request.resource.data.siteId is string
+        && request.resource.data.item is string && request.resource.data.item.size() > 0
+        && request.resource.data.category in ['material', 'labour', 'equipment', 'transport', 'other']
+        && request.resource.data.amount is int && request.resource.data.amount > 0
+        && validQuantity(request.resource.data.quantity)
+        && request.resource.data.expenseDate is timestamp
+        && request.resource.data.photos is list
+        && request.resource.data.photos.size() <= 10
+        && request.resource.data.pendingPhotoCount is int && request.resource.data.pendingPhotoCount >= 0
+        && request.resource.data.source in ['manual', 'voice']
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.lastChangeId != resource.data.lastChangeId
+        && !exists(/databases/$(database)/documents/entries/$(entryId)/history/$(request.resource.data.lastChangeId))
+        && (request.resource.data.siteId == resource.data.siteId || activeSite(request.resource.data.siteId))
+        && !(resource.data.isDeleted == true && request.resource.data.isDeleted == false)
+        && ((request.resource.data.isDeleted == resource.data.isDeleted
+              && request.resource.data.deletedBy == resource.data.deletedBy
+              && request.resource.data.deletedAt == resource.data.deletedAt)
+            || (resource.data.isDeleted == false && request.resource.data.isDeleted == true
+              && request.resource.data.deletedBy == request.auth.uid
+              && request.resource.data.deletedAt == request.time))
+        && validUpdateBatch(entryId);
+      allow delete: if false;
+
+      match /history/{changeId} {
+        allow read: if isActive();
+        allow create: if isActive()
+          && getAfter(/databases/$(database)/documents/entries/$(entryId)).data.lastChangeId == changeId
+          && request.resource.data.by == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /activity/{changeId} {
+      allow read: if isActive();
+      allow create: if isActive()
+        && getAfter(/databases/$(database)/documents/entries/$(request.resource.data.entryId)).data.lastChangeId == changeId
+        && request.resource.data.actorId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Everything else is denied (the default) until its milestone adds rules.
+  }
+}

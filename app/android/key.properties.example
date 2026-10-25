@@ -1,0 +1,4 @@
+storePassword=replace-me
+keyPassword=replace-me
+keyAlias=mjq-release
+storeFile=/absolute/path/to/mjq-release.jks

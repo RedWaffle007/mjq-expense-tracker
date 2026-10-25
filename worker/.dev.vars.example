@@ -1,0 +1,11 @@
+# Local development against the Firebase emulators (never used in production).
+# Copy to .dev.vars (git-ignored) and run `npm run dev`.
+# Must match the app's firebase_options.dart so emulator tokens verify.
+PROJECT_ID=mjq-builders-developers
+EMULATOR=true
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+AUTH_EMULATOR_HOST=127.0.0.1:9099
+# Photo routes also need these when exercising Cloudinary locally:
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=

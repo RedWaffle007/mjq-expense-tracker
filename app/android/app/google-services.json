@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "71897827045",
+    "project_id": "mjq-builders-developers",
+    "storage_bucket": "mjq-builders-developers.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:71897827045:android:4954c3e80d125d65aeb60c",
+        "android_client_info": {
+          "package_name": "com.mjq.expensetracker"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "71897827045-stedoavjras94e6relumlv553ejej8ke.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mjq.expensetracker",
+            "certificate_hash": "ec4223bca4094b7d4dcfda5fd33212a9a828a7c3"
+          }
+        },
+        {
+          "client_id": "71897827045-45ct72ejvguh9t7jf413ddv2kovulns3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCN-hnkbApDPzsYuieKK9HekPH6MNnVrmA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "71897827045-45ct72ejvguh9t7jf413ddv2kovulns3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
